@@ -5,6 +5,8 @@ import {
   isJidGroup,
   isJidStatusBroadcast,
   makeWASocket as makeWASocketExport,
+  USyncQuery,
+  USyncUser,
   type WAMessage,
   type WASocket,
 } from "@whiskeysockets/baileys";
@@ -79,15 +81,24 @@ export async function startGateway(options: {
   const learnLids = async (socket: WASocket) => {
     try {
       const phones = [options.config.userPhone, options.config.originalDizaPhone];
-      const rows = await socket.onWhatsApp(...phones.map((phone) => `${digits(phone)}@s.whatsapp.net`));
       let found = 0;
-      for (const row of rows ?? []) {
-        const phone = phoneFromUserJid(row.jid);
-        const lid = typeof row.lid === "string" ? row.lid : null;
-        if (!phone || !lid) continue;
+      for (const raw of phones) {
+        const phone = digits(raw);
+        const label = (await options.memory.findByPhone(phone))?.name || "lista";
+        const query = new USyncQuery().withContactProtocol().withLIDProtocol();
+        query.withUser(new USyncUser().withPhone(`+${phone}`));
+        const result = await socket.executeUSyncQuery(query);
+        const row = result?.list?.[0];
+        const lid = typeof row?.lid === "string" ? row.lid : null;
+        if (!lid) {
+          console.warn(
+            `[diza] sem lid de ${label} (resposta=${row ? "sim" : "vazia"}, contact=${String(row?.contact)}, lid=${typeof row?.lid})`,
+          );
+          continue;
+        }
         storeLid(lid, phone);
         found += 1;
-        console.log(`[diza] ${digits(lid)}@lid é ${(await options.memory.findByPhone(phone))?.name ?? "lista"}`);
+        console.log(`[diza] ${digits(lid)}@lid é ${label}`);
       }
       if (!found) console.warn("[diza] WhatsApp não devolveu o lid dos números da lista");
     } finally {
@@ -196,17 +207,18 @@ export async function startGateway(options: {
     const text = messageText(message);
     if (!text) return;
 
-    storeLid(remoteJid.endsWith("@lid") ? remoteJid : null, phoneFromUserJid(key.senderPn));
-    let phone = resolvePhone(remoteJid, key.senderPn, lidPhones);
+    const hinted = phoneOnKey(key);
+    storeLid(remoteJid.endsWith("@lid") ? remoteJid : null, hinted);
+    let phone = resolvePhone(remoteJid, hinted, lidPhones);
     if (!phone && remoteJid.endsWith("@lid")) {
       await lidLookup;
-      phone = resolvePhone(remoteJid, key.senderPn, lidPhones);
+      phone = resolvePhone(remoteJid, hinted, lidPhones);
       if (!phone && sock && Date.now() - lidsLearnedAt > 15_000) {
         lidLookup = learnLids(sock).catch((error: Error) => {
           console.warn(`[diza] falha ao ligar lid: ${error.message}`);
         });
         await lidLookup;
-        phone = resolvePhone(remoteJid, key.senderPn, lidPhones);
+        phone = resolvePhone(remoteJid, hinted, lidPhones);
       }
     }
     if (!phone) {
@@ -275,6 +287,16 @@ function resolveMakeWASocket(exported: unknown): typeof makeWASocketExport {
     }
   }
   throw new Error("makeWASocket is not a function");
+}
+
+function phoneOnKey(key: WAMessage["key"]): string | null {
+  const extra = key as WAMessage["key"] & { remoteJidAlt?: string; participantAlt?: string };
+  return (
+    phoneFromUserJid(key.senderPn) ??
+    phoneFromUserJid(key.participantPn) ??
+    phoneFromUserJid(extra.remoteJidAlt) ??
+    phoneFromUserJid(extra.participantAlt)
+  );
 }
 
 function resolvePhone(
