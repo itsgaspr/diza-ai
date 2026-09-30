@@ -79,6 +79,6 @@ export function loadConfig(): AppConfig {
     minInitiativeGapMs: intEnv("MIN_INITIATIVE_GAP_MS", 4 * 60 * 60 * 1000),
     maxInitiativePerDay: intEnv("MAX_INITIATIVE_PER_DAY", 2),
     llmTimeoutMs: intEnv("LLM_TIMEOUT_MS", 45_000),
-    pingPort: intEnv("PING_PORT", 3080),
+    pingPort: intEnv("PORT", intEnv("PING_PORT", 3080)),
   };
 }

@@ -1,9 +1,10 @@
 import { setTimeout as delay } from "node:timers/promises";
-import makeWASocket, {
+import {
   DisconnectReason,
   fetchLatestBaileysVersion,
   isJidGroup,
   isJidStatusBroadcast,
+  makeWASocket as makeWASocketExport,
   useMultiFileAuthState,
   type WAMessage,
   type WASocket,
@@ -14,6 +15,8 @@ import type { AppConfig } from "./config.js";
 import type { DizaCore } from "./core.js";
 import type { Memory, Person } from "./memory.js";
 import { phoneFromUserJid } from "./phone.js";
+
+const makeWASocket = resolveMakeWASocket(makeWASocketExport);
 
 const logger = pino({ level: "silent" });
 
@@ -191,6 +194,21 @@ export async function startGateway(options: {
 
   await connect();
   return gateway;
+}
+
+function resolveMakeWASocket(exported: unknown): typeof makeWASocketExport {
+  if (typeof exported === "function") return exported as typeof makeWASocketExport;
+  if (exported && typeof exported === "object") {
+    const nested = exported as { default?: unknown; makeWASocket?: unknown };
+    if (typeof nested.makeWASocket === "function") return nested.makeWASocket as typeof makeWASocketExport;
+    if (typeof nested.default === "function") return nested.default as typeof makeWASocketExport;
+    if (nested.default && typeof nested.default === "object") {
+      const inner = nested.default as { default?: unknown; makeWASocket?: unknown };
+      if (typeof inner.makeWASocket === "function") return inner.makeWASocket as typeof makeWASocketExport;
+      if (typeof inner.default === "function") return inner.default as typeof makeWASocketExport;
+    }
+  }
+  throw new Error("makeWASocket is not a function");
 }
 
 function resolvePhone(
