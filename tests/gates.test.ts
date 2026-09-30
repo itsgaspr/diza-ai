@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { storagePaths } from "../src/config.js";
 import { initiativeBlockReason } from "../src/initiative.js";
-import { phoneForLid, phoneFromUserJid, phonesMatch, rememberLidPhone } from "../src/phone.js";
+import { phoneForLid, phoneFromMessageKey, phoneFromUserJid, phonesMatch, rememberLidPhone } from "../src/phone.js";
 import { hourInZone, isQuietHour, startOfLocalDay } from "../src/time.js";
 
 const base = {
@@ -29,6 +29,17 @@ test("números batem com ou sem o código do país", () => {
   assert.equal(phonesMatch("+55 11 98888-7777", "5511988887777"), true);
   assert.equal(phonesMatch("11988887777", "5511988887777"), true);
   assert.equal(phonesMatch("5511988887777", "5511988886666"), false);
+});
+
+test("telefone vem do jid alternativo, como na Leena", () => {
+  assert.equal(
+    phoneFromMessageKey({
+      remoteJid: "155255065026685@lid",
+      remoteJidAlt: "258853692104@s.whatsapp.net",
+    }),
+    "258853692104",
+  );
+  assert.equal(phoneFromMessageKey({ remoteJid: "155255065026685@lid" }), null);
 });
 
 test("jid de telefone vira dígitos e lid não", () => {

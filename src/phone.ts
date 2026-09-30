@@ -12,6 +12,16 @@ export function phonesMatch(left: string, right: string): boolean {
   return shorter.length >= 8 && longer.endsWith(shorter);
 }
 
+export function phoneFromMessageKey(key: {
+  participantAlt?: string | null;
+  participant?: string | null;
+  remoteJidAlt?: string | null;
+  remoteJid?: string | null;
+}): string | null {
+  const jid = key.participantAlt || key.participant || key.remoteJidAlt || key.remoteJid;
+  return phoneFromUserJid(jid);
+}
+
 export function phoneFromUserJid(jid: string | null | undefined): string | null {
   if (!jid || !jid.endsWith("@s.whatsapp.net")) return null;
   const user = jid.split("@")[0]?.split(":")[0] ?? "";

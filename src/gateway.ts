@@ -16,7 +16,7 @@ import type { SavedAuth } from "./auth-state.js";
 import type { AppConfig } from "./config.js";
 import type { DizaCore } from "./core.js";
 import type { Memory, Person } from "./memory.js";
-import { digits, phoneForLid, phoneFromUserJid, rememberLidPhone } from "./phone.js";
+import { digits, phoneForLid, phoneFromMessageKey, phoneFromUserJid, rememberLidPhone } from "./phone.js";
 
 const makeWASocket = resolveMakeWASocket(makeWASocketExport);
 
@@ -72,8 +72,12 @@ export async function startGateway(options: {
     });
   };
 
-  const absorbContact = (contact: { id?: string; lid?: string | null; jid?: string | null }) => {
-    const phone = phoneFromUserJid(contact.jid) ?? phoneFromUserJid(contact.id);
+  const absorbContact = (contact: { id?: string; lid?: string | null; phoneNumber?: string | null; jid?: string | null }) => {
+    const phone =
+      phoneFromUserJid(contact.phoneNumber) ??
+      phoneFromUserJid(contact.jid) ??
+      phoneFromUserJid(contact.id) ??
+      (contact.phoneNumber && !contact.phoneNumber.includes("@") ? contact.phoneNumber : null);
     const lid = contact.lid || (contact.id?.endsWith("@lid") ? contact.id : undefined);
     storeLid(lid, phone);
   };
@@ -136,13 +140,9 @@ export async function startGateway(options: {
       previous.ev.removeAllListeners("contacts.upsert");
       previous.ev.removeAllListeners("contacts.update");
       previous.ev.removeAllListeners("messaging-history.set");
-      previous.ev.removeAllListeners("chats.phoneNumberShare");
       previous.end(undefined);
     }
     current.ev.on("creds.update", auth.saveCreds);
-    current.ev.on("chats.phoneNumberShare", ({ lid, jid }) => {
-      storeLid(lid, phoneFromUserJid(jid));
-    });
     current.ev.on("contacts.upsert", (contacts) => {
       for (const contact of contacts) absorbContact(contact);
     });
@@ -207,7 +207,7 @@ export async function startGateway(options: {
     const text = messageText(message);
     if (!text) return;
 
-    const hinted = phoneOnKey(key);
+    const hinted = phoneFromMessageKey(key);
     storeLid(remoteJid.endsWith("@lid") ? remoteJid : null, hinted);
     let phone = resolvePhone(remoteJid, hinted, lidPhones);
     if (!phone && remoteJid.endsWith("@lid")) {
@@ -287,16 +287,6 @@ function resolveMakeWASocket(exported: unknown): typeof makeWASocketExport {
     }
   }
   throw new Error("makeWASocket is not a function");
-}
-
-function phoneOnKey(key: WAMessage["key"]): string | null {
-  const extra = key as WAMessage["key"] & { remoteJidAlt?: string; participantAlt?: string };
-  return (
-    phoneFromUserJid(key.senderPn) ??
-    phoneFromUserJid(key.participantPn) ??
-    phoneFromUserJid(extra.remoteJidAlt) ??
-    phoneFromUserJid(extra.participantAlt)
-  );
 }
 
 function resolvePhone(
