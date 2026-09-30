@@ -18,3 +18,23 @@ export function phoneFromUserJid(jid: string | null | undefined): string | null 
   const only = digits(user);
   return only || null;
 }
+
+export function lidAliases(value: string): string[] {
+  const user = digits(value.split("@")[0]?.split(":")[0] ?? "");
+  if (!user) return [];
+  return [...new Set([value, user, `${user}@lid`])];
+}
+
+export function rememberLidPhone(map: Map<string, string>, lid: string, phone: string): void {
+  const only = phoneFromUserJid(phone) ?? (phone.includes("@") ? "" : digits(phone));
+  if (only.length < 8 || only.length > 15) return;
+  for (const key of lidAliases(lid)) map.set(key, only);
+}
+
+export function phoneForLid(map: ReadonlyMap<string, string>, lid: string): string | null {
+  for (const key of lidAliases(lid)) {
+    const found = map.get(key);
+    if (found) return found;
+  }
+  return null;
+}

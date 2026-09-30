@@ -14,7 +14,7 @@ import qrcode from "qrcode-terminal";
 import type { AppConfig } from "./config.js";
 import type { DizaCore } from "./core.js";
 import type { Memory, Person } from "./memory.js";
-import { phoneFromUserJid } from "./phone.js";
+import { digits, phoneForLid, phoneFromUserJid, rememberLidPhone } from "./phone.js";
 
 const makeWASocket = resolveMakeWASocket(makeWASocketExport);
 
@@ -54,7 +54,43 @@ export async function startGateway(options: {
   let announced = false;
   let generation = 0;
   const lidPhones = new Map<string, string>();
+  for (const known of options.memory.knownLids()) {
+    rememberLidPhone(lidPhones, known.lid, known.phone);
+  }
+  let lidLookup: Promise<void> = Promise.resolve();
+  let lidsLearnedAt = 0;
   const bursts = new Map<number, { parts: string[]; jid: string; timer?: NodeJS.Timeout }>();
+
+  const storeLid = (lid: string | null | undefined, phone: string | null | undefined) => {
+    if (!lid || !phone) return;
+    rememberLidPhone(lidPhones, lid, phone);
+    options.memory.setLid(phone, lid);
+  };
+
+  const absorbContact = (contact: { id?: string; lid?: string | null; jid?: string | null }) => {
+    const phone = phoneFromUserJid(contact.jid) ?? phoneFromUserJid(contact.id);
+    const lid = contact.lid || (contact.id?.endsWith("@lid") ? contact.id : undefined);
+    storeLid(lid, phone);
+  };
+
+  const learnLids = async (socket: WASocket) => {
+    try {
+      const phones = [options.config.userPhone, options.config.originalDizaPhone];
+      const rows = await socket.onWhatsApp(...phones.map((phone) => `${digits(phone)}@s.whatsapp.net`));
+      let found = 0;
+      for (const row of rows ?? []) {
+        const phone = phoneFromUserJid(row.jid);
+        const lid = typeof row.lid === "string" ? row.lid : null;
+        if (!phone || !lid) continue;
+        storeLid(lid, phone);
+        found += 1;
+        console.log(`[diza] ${digits(lid)}@lid é ${options.memory.findByPhone(phone)?.name ?? "lista"}`);
+      }
+      if (!found) console.warn("[diza] WhatsApp não devolveu o lid dos números da lista");
+    } finally {
+      lidsLearnedAt = Date.now();
+    }
+  };
 
   const gateway: Gateway = {
     isConnected: () => connected,
@@ -83,12 +119,24 @@ export async function startGateway(options: {
     if (previous && previous !== current) {
       previous.ev.removeAllListeners("connection.update");
       previous.ev.removeAllListeners("messages.upsert");
+      previous.ev.removeAllListeners("contacts.upsert");
+      previous.ev.removeAllListeners("contacts.update");
+      previous.ev.removeAllListeners("messaging-history.set");
+      previous.ev.removeAllListeners("chats.phoneNumberShare");
       previous.end(undefined);
     }
     current.ev.on("creds.update", auth.saveCreds);
     current.ev.on("chats.phoneNumberShare", ({ lid, jid }) => {
-      const phone = phoneFromUserJid(jid) ?? jid.replace(/\D/g, "");
-      if (lid && phone) lidPhones.set(lid, phone);
+      storeLid(lid, phoneFromUserJid(jid));
+    });
+    current.ev.on("contacts.upsert", (contacts) => {
+      for (const contact of contacts) absorbContact(contact);
+    });
+    current.ev.on("contacts.update", (contacts) => {
+      for (const contact of contacts) absorbContact(contact);
+    });
+    current.ev.on("messaging-history.set", ({ contacts }) => {
+      for (const contact of contacts) absorbContact(contact);
     });
     current.ev.on("connection.update", (update) => {
       if (mine !== generation) return;
@@ -100,6 +148,9 @@ export async function startGateway(options: {
       if (connection === "open") {
         connected = true;
         console.log("[diza] WhatsApp conectado");
+        lidLookup = learnLids(current).catch((error: Error) => {
+          console.warn(`[diza] falha ao ligar lid: ${error.message}`);
+        });
         if (!announced) {
           announced = true;
           options.onConnected(gateway);
@@ -142,7 +193,19 @@ export async function startGateway(options: {
     const text = messageText(message);
     if (!text) return;
 
-    const phone = resolvePhone(remoteJid, key.senderPn, lidPhones);
+    storeLid(remoteJid.endsWith("@lid") ? remoteJid : null, phoneFromUserJid(key.senderPn));
+    let phone = resolvePhone(remoteJid, key.senderPn, lidPhones);
+    if (!phone && remoteJid.endsWith("@lid")) {
+      await lidLookup;
+      phone = resolvePhone(remoteJid, key.senderPn, lidPhones);
+      if (!phone && sock && Date.now() - lidsLearnedAt > 15_000) {
+        lidLookup = learnLids(sock).catch((error: Error) => {
+          console.warn(`[diza] falha ao ligar lid: ${error.message}`);
+        });
+        await lidLookup;
+        phone = resolvePhone(remoteJid, key.senderPn, lidPhones);
+      }
+    }
     if (!phone) {
       console.warn(`[diza] não achei telefone para ${remoteJid}`);
       return;
@@ -216,7 +279,7 @@ function resolvePhone(
   senderPn: string | null | undefined,
   lidPhones: Map<string, string>,
 ): string | null {
-  return phoneFromUserJid(remoteJid) ?? phoneFromUserJid(senderPn) ?? lidPhones.get(remoteJid) ?? null;
+  return phoneFromUserJid(remoteJid) ?? phoneFromUserJid(senderPn) ?? phoneForLid(lidPhones, remoteJid);
 }
 
 function messageText(message: WAMessage): string | null {

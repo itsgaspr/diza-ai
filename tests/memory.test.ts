@@ -52,6 +52,8 @@ test("conversas ficam separadas por pessoa", () => {
     );
     assert.equal(memory.hasUserMessage(me.id), true);
     assert.equal(memory.userMessagesSinceExtract(me.id), 1);
+    memory.setLid("351910000001", "155255065026685@lid");
+    assert.deepEqual(memory.knownLids(), [{ phone: "351910000001", lid: "155255065026685@lid" }]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

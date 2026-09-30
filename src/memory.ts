@@ -40,6 +40,7 @@ export class Memory {
         role TEXT NOT NULL,
         name TEXT NOT NULL,
         last_jid TEXT,
+        lid TEXT,
         last_extract_message_id INTEGER NOT NULL DEFAULT 0
       );
       CREATE TABLE IF NOT EXISTS messages (
@@ -64,8 +65,26 @@ export class Memory {
         created_at INTEGER NOT NULL
       );
     `);
+    const columns = this.db.prepare("PRAGMA table_info(users)").all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === "lid")) {
+      this.db.exec("ALTER TABLE users ADD COLUMN lid TEXT");
+    }
     this.seed(digits(config.userPhone), "user", config.userName);
     this.seed(digits(config.originalDizaPhone), "original_diza", "Diza");
+  }
+
+  knownLids(): Array<{ phone: string; lid: string }> {
+    const rows = this.db
+      .prepare("SELECT phone, lid FROM users WHERE lid IS NOT NULL AND lid != ''")
+      .all() as Array<{ phone: string; lid: string }>;
+    return rows.map((row) => ({ phone: row.phone, lid: row.lid }));
+  }
+
+  setLid(phone: string, lid: string): void {
+    const person = this.findByPhone(phone);
+    const user = digits(lid.split("@")[0]?.split(":")[0] ?? "");
+    if (!person || !user) return;
+    this.db.prepare("UPDATE users SET lid = ? WHERE id = ?").run(`${user}@lid`, person.id);
   }
 
   people(): Person[] {

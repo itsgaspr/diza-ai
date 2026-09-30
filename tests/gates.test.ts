@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { initiativeBlockReason } from "../src/initiative.js";
-import { phoneFromUserJid, phonesMatch } from "../src/phone.js";
+import { phoneForLid, phoneFromUserJid, phonesMatch, rememberLidPhone } from "../src/phone.js";
 import { hourInZone, isQuietHour, startOfLocalDay } from "../src/time.js";
 
 const base = {
@@ -28,6 +28,13 @@ test("jid de telefone vira dígitos e lid não", () => {
   assert.equal(phoneFromUserJid("5511988887777@s.whatsapp.net"), "5511988887777");
   assert.equal(phoneFromUserJid("5511988887777:12@s.whatsapp.net"), "5511988887777");
   assert.equal(phoneFromUserJid("123@lid"), null);
+});
+
+test("lid guarda o telefone em qualquer forma", () => {
+  const map = new Map<string, string>();
+  rememberLidPhone(map, "155255065026685", "258853692104@s.whatsapp.net");
+  assert.equal(phoneForLid(map, "155255065026685@lid"), "258853692104");
+  assert.equal(phoneForLid(map, "155255065026685:0@lid"), "258853692104");
 });
 
 test("horário quieto atravessa a meia-noite", () => {
