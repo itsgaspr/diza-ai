@@ -1,4 +1,5 @@
-import { BufferJSON, initAuthCreds, proto, type AuthenticationState } from "@whiskeysockets/baileys";
+import { BufferJSON, initAuthCreds, type AuthenticationState } from "@whiskeysockets/baileys";
+import { proto } from "@whiskeysockets/baileys/WAProto/index.js";
 import type { Sql } from "./sql.js";
 
 export interface SavedAuth {
