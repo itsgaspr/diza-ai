@@ -56,6 +56,7 @@ export async function startGateway(options: {
   let connected = false;
   let announced = false;
   let generation = 0;
+  let replacingSession = false;
   const lidPhones = new Map<string, string>();
   for (const known of await options.memory.knownLids()) {
     rememberLidPhone(lidPhones, known.lid, known.phone);
@@ -161,6 +162,7 @@ export async function startGateway(options: {
       }
       if (connection === "open") {
         connected = true;
+        replacingSession = false;
         console.log("[diza] WhatsApp conectado");
         lidLookup = learnLids(current).catch((error: Error) => {
           console.warn(`[diza] falha ao ligar lid: ${error.message}`);
@@ -174,16 +176,29 @@ export async function startGateway(options: {
         connected = false;
         const status = (lastDisconnect?.error as { output?: { statusCode?: number } } | undefined)?.output
           ?.statusCode;
-        const loggedOut = status === DisconnectReason.loggedOut;
         console.warn(`[diza] WhatsApp caiu (${status ?? "sem código"})`);
-        if (!loggedOut) {
-          const wait = status === DisconnectReason.timedOut ? 5_000 : 2_000;
-          setTimeout(() => {
-            void connect().catch((error: Error) => {
-              console.error(`[diza] reconexão falhou: ${error.message}`);
+        if (status === DisconnectReason.loggedOut) {
+          if (replacingSession) {
+            console.warn("[diza] a sessão nova também foi recusada");
+            return;
+          }
+          replacingSession = true;
+          console.warn("[diza] sessão recusada. a apagar o login antigo e a pedir um QR");
+          current.ev.removeAllListeners("creds.update");
+          void options.auth
+            .reset()
+            .then(() => connect())
+            .catch((error: Error) => {
+              console.error(`[diza] não consegui recomeçar o login: ${error.message}`);
             });
-          }, wait);
+          return;
         }
+        const wait = status === DisconnectReason.timedOut ? 5_000 : 2_000;
+        setTimeout(() => {
+          void connect().catch((error: Error) => {
+            console.error(`[diza] reconexão falhou: ${error.message}`);
+          });
+        }, wait);
       }
     });
     current.ev.on("messages.upsert", ({ messages, type }) => {

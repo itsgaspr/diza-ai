@@ -1,5 +1,4 @@
-import { useMultiFileAuthState } from "@whiskeysockets/baileys";
-import { useDbAuthState, type SavedAuth } from "./auth-state.js";
+import { useDbAuthState, useFileAuthState, type SavedAuth } from "./auth-state.js";
 import { loadConfig, storagePaths } from "./config.js";
 import { DizaCore } from "./core.js";
 import { startGateway } from "./gateway.js";
@@ -40,7 +39,7 @@ async function main(): Promise<void> {
     throw new Error("Falta DATABASE_URL. Copia a connection string do Neon para o Render.");
   } else {
     memory = await Memory.open(openSqlite(paths.dbPath), config);
-    auth = await useMultiFileAuthState(paths.authDir);
+    auth = await useFileAuthState(paths.authDir);
     console.log(`[diza] sessão em ${paths.authDir}, memória em ${paths.dbPath}`);
   }
   const router = new ModelRouter(buildSlots(config), config.llmTimeoutMs);

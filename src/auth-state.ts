@@ -1,10 +1,12 @@
-import { BufferJSON, initAuthCreds, type AuthenticationState } from "@whiskeysockets/baileys";
+import { rm } from "node:fs/promises";
+import { BufferJSON, initAuthCreds, useMultiFileAuthState, type AuthenticationState } from "@whiskeysockets/baileys";
 import { proto } from "@whiskeysockets/baileys/WAProto/index.js";
 import type { Sql } from "./sql.js";
 
 export interface SavedAuth {
-  state: AuthenticationState;
+  readonly state: AuthenticationState;
   saveCreds: () => Promise<void>;
+  reset: () => Promise<void>;
 }
 
 export async function useDbAuthState(sql: Sql): Promise<SavedAuth> {
@@ -32,11 +34,9 @@ export async function useDbAuthState(sql: Sql): Promise<SavedAuth> {
     await sql.run("DELETE FROM wa_auth WHERE name = $1", [fileName(file)]);
   };
 
-  const creds = ((await readData("creds.json")) as AuthenticationState["creds"] | null) || initAuthCreds();
-  return {
-    state: {
-      creds,
-      keys: {
+  const state: AuthenticationState = {
+    creds: ((await readData("creds.json")) as AuthenticationState["creds"] | null) || initAuthCreds(),
+    keys: {
         get: async (type, ids) => {
           const data: Record<string, unknown> = {};
           await Promise.all(
@@ -64,8 +64,28 @@ export async function useDbAuthState(sql: Sql): Promise<SavedAuth> {
           await Promise.all(tasks);
         },
       },
+  };
+  return {
+    state,
+    saveCreds: () => writeData(state.creds, "creds.json"),
+    async reset() {
+      await sql.run("DELETE FROM wa_auth");
+      state.creds = initAuthCreds();
     },
-    saveCreds: () => writeData(creds, "creds.json"),
+  };
+}
+
+export async function useFileAuthState(folder: string): Promise<SavedAuth> {
+  let current = await useMultiFileAuthState(folder);
+  return {
+    get state() {
+      return current.state;
+    },
+    saveCreds: () => current.saveCreds(),
+    async reset() {
+      await rm(folder, { recursive: true, force: true });
+      current = await useMultiFileAuthState(folder);
+    },
   };
 }
 
