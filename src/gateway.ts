@@ -44,7 +44,7 @@ export async function startGateway(options: {
   startedAt: number;
   lock: <T>(userId: number, fn: () => Promise<T>) => Promise<T>;
   onConnected: (gateway: Gateway) => void;
-}): Promise<void> {
+}): Promise<Gateway> {
   const auth = await useMultiFileAuthState("auth");
   let sock: WASocket | null = null;
   let connected = false;
@@ -190,6 +190,7 @@ export async function startGateway(options: {
   };
 
   await connect();
+  return gateway;
 }
 
 function resolvePhone(

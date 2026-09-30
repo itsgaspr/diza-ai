@@ -23,6 +23,7 @@ function config(): AppConfig {
     minInitiativeGapMs: 1000,
     maxInitiativePerDay: 2,
     llmTimeoutMs: 1000,
+    pingPort: 0,
   };
 }
 

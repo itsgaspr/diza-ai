@@ -4,6 +4,7 @@ import { startGateway } from "./gateway.js";
 import { startInitiative } from "./initiative.js";
 import { Memory } from "./memory.js";
 import { buildSlots } from "./models.js";
+import { startPing } from "./ping.js";
 import { ModelRouter } from "./router.js";
 
 const locks = new Map<number, Promise<unknown>>();
@@ -28,19 +29,21 @@ async function main(): Promise<void> {
   const router = new ModelRouter(buildSlots(config), config.llmTimeoutMs);
   const core = new DizaCore(memory, router, config);
 
+  startPing(config.pingPort);
+
   await startGateway({
     config,
     memory,
     core,
     startedAt,
     lock,
-    onConnected: (gateway) => {
+    onConnected: (ready) => {
       startInitiative({
         config,
         memory,
         core,
-        isConnected: () => gateway.isConnected(),
-        send: (jid, text) => gateway.send(jid, text),
+        isConnected: () => ready.isConnected(),
+        send: (jid, text) => ready.send(jid, text),
         lock,
       });
     },

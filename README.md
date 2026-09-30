@@ -19,3 +19,5 @@ Ela ignora mensagem antiga, grupo e qualquer número que não seja o seu ou o da
 `auth/` guarda a sessão. `data/diza.db` guarda conversas e memórias. Os dois ficam fora do git.
 
 Se o WhatsApp deslogar, apaga a pasta `auth/` e pareia de novo.
+
+Para ver se o processo está no ar: `curl http://127.0.0.1:3080/ping`. A porta muda com `PING_PORT`. A resposta diz há quanto tempo a Diza está ativa.
