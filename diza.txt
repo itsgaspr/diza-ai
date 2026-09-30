@@ -1,0 +1,68 @@
+# Diza
+
+Amiga por conversa. O modelo gera a fala. A Diza é personalidade, memória e continuidade. O WhatsApp é a interface.
+
+Atualizado: 2026-09-30
+
+## Esta fase
+
+Ela fala no privado com duas pessoas: você e a Diza original. O banco já separa conversa por pessoa, pronto para mais gente depois. Qualquer outro número, grupo ou status é ignorado e não é gravado.
+
+A sessão do Baileys é um terceiro número, o da própria Diza, pareado por QR. Você e a Diza original escrevem para esse número.
+
+O banco guarda a conversa de cada pessoa em separado. No prompt, as duas veem as memórias e o histórico recente uma da outra. Se perguntarem o que foi conversado com a outra, ela conta. Não despeja isso sem alguém perguntar.
+
+## Personalidade
+
+- Amiga, não assistente. Conversa, zoa, discorda. Pergunta de vez em quando, sem frequência de entrevista. Pode sugerir outro assunto quando o papo assentar.
+- Humor do momento, sem piada forçada.
+- Resposta curta por padrão. Alonga quando pedem ajuda.
+- Fala como nas conversas dela: várias mensagens curtas, abreviações (u, yh, bcz), reação primeiro, tom leve. Com o gaspr entra na brincadeira de cavalheiro medieval ("my lord", "i feel honoured") e gosta dos dramas dele, sem cortar nem parecer irritada. Inglês nesse tom. Francês só se a mensagem recebida for em francês, e mesmo assim curto. Não responde em português. Não puxa episódio privado nem assunto explícito se ninguém trouxe.
+- A personagem se chama Diza. Uma das pessoas também se chama Diza. A personagem fala com essa pessoa; não é essa pessoa.
+
+## Memória
+
+SQLite em `data/diza.db`.
+
+- `users`: número, papel (`user` ou `original_diza`)
+- `messages`: trocas daquela pessoa. Mensagem que ela puxou fica marcada como iniciativa.
+- `memories`: fatos, preferências e piadas internas daquela pessoa. A extração roda de tempos em tempos, não a cada mensagem.
+- `initiative_log`: se mandou ou ficou quieta, e por quê.
+
+O histórico que vai no prompt tem teto de trocas.
+
+## Iniciativa
+
+Ela pode mandar mensagem primeiro, para cada pessoa no próprio chat. Não é agenda de bom dia e boa noite, e não precisa de motivo. Quando os portões passam, a fala é espontânea: um oi, uma pergunta à toa, uma zoação, um pensamento solto.
+
+Ela fica quieta, sem chamar modelo, quando:
+
+- está no horário quieto (padrão 23:00–08:00 no fuso configurado)
+- essa pessoa ainda não escreveu nenhuma vez
+- a conversa ainda está viva
+- já mandou iniciativa há pouco, ou já bateu o teto do dia (padrão: duas, com intervalo de algumas horas)
+- o processo acabou de subir
+
+Se a geração ou o envio falhar, a iniciativa simplesmente não acontece.
+
+## Modelos
+
+Uma fila no formato de chat completions. Se um falha por limite, queda ou resposta vazia, o próximo tenta. Um pedido inválido (400) para na hora. Modelo em 429 fica em cooldown.
+
+Ordem padrão, pulando quem não tem chave:
+
+1. Gemini: `gemini-3.8-flash`, depois `gemini-3.5-flash-lite`
+2. Groq: `openai/gpt-oss-120b`, `qwen/qwen3.8-27b`, `openai/gpt-oss-20b`
+3. OpenRouter: dois modelos `:free`, e por último `openrouter/free`
+
+A extração de memória usa primeiro os modelos marcados como baratos.
+
+## WhatsApp
+
+- Ignora mensagem anterior à subida do processo, para não responder o histórico inteiro.
+- Várias mensagens seguidas da mesma pessoa esperam um instante e viram uma resposta só.
+- Remetente `@lid` é resolvido para telefone antes da allowlist.
+
+## Depois
+
+Fora desta versão: grupos, outras pessoas, áudio, imagem, reações, outras interfaces, modelo local e roteamento por tipo de pergunta.
