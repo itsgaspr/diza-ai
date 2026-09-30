@@ -66,7 +66,7 @@ async function runTick(options: {
   lock: <T>(userId: number, fn: () => Promise<T>) => Promise<T>;
 }): Promise<void> {
   if (!options.isConnected()) return;
-  for (const person of options.memory.people()) {
+  for (const person of await options.memory.people()) {
     await options.lock(person.id, () => consider(person, options));
   }
 }
@@ -90,19 +90,19 @@ async function consider(
     liveConversationMs: config.liveConversationMs,
     minInitiativeGapMs: config.minInitiativeGapMs,
     maxInitiativePerDay: config.maxInitiativePerDay,
-    hasUserMessage: memory.hasUserMessage(person.id),
-    lastActivityAt: memory.lastActivityAt(person.id),
-    lastInitiativeAt: memory.lastInitiativeAt(person.id),
-    initiativeToday: memory.initiativeCountSince(person.id, startOfLocalDay(now, config.timezone)),
+    hasUserMessage: await memory.hasUserMessage(person.id),
+    lastActivityAt: await memory.lastActivityAt(person.id),
+    lastInitiativeAt: await memory.lastInitiativeAt(person.id),
+    initiativeToday: await memory.initiativeCountSince(person.id, startOfLocalDay(now, config.timezone)),
   });
   if (reason) {
-    memory.logInitiative(person.id, "quiet", reason);
+    await memory.logInitiative(person.id, "quiet", reason);
     return;
   }
 
   const text = await core.initiate(person);
   if (!text) {
-    memory.logInitiative(person.id, "quiet", "model-failed");
+    await memory.logInitiative(person.id, "quiet", "model-failed");
     return;
   }
 
@@ -111,10 +111,10 @@ async function consider(
     await send(jid, text);
   } catch (error) {
     console.warn(`[diza] não enviei iniciativa: ${(error as Error).message}`);
-    memory.logInitiative(person.id, "quiet", "send-failed");
+    await memory.logInitiative(person.id, "quiet", "send-failed");
     return;
   }
-  memory.addMessage(person.id, "assistant", text, true);
-  memory.logInitiative(person.id, "sent", "spontaneous");
+  await memory.addMessage(person.id, "assistant", text, true);
+  await memory.logInitiative(person.id, "sent", "spontaneous");
   console.log(`[diza] iniciativa para ${person.role}`);
 }

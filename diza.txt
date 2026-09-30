@@ -22,7 +22,7 @@ O banco guarda a conversa de cada pessoa em separado. No prompt, as duas veem as
 
 ## Memória
 
-SQLite em `data/diza.db`.
+Sem `DATABASE_URL`, SQLite em `data/diza.db` e sessão em `auth/`. Com `DATABASE_URL` (Neon), conversas, memórias e login do WhatsApp ficam no Postgres e sobrevivem ao deploy.
 
 - `users`: número, papel (`user` ou `original_diza`)
 - `messages`: trocas daquela pessoa. Mensagem que ela puxou fica marcada como iniciativa.

@@ -11,10 +11,10 @@ export class DizaCore {
   ) {}
 
   async reply(person: Person, text: string): Promise<string> {
-    this.memory.addMessage(person.id, "user", text, false);
+    await this.memory.addMessage(person.id, "user", text, false);
     try {
-      const { text: answer } = await this.router.complete(this.thread(person, "reply"));
-      this.memory.addMessage(person.id, "assistant", answer, false);
+      const { text: answer } = await this.router.complete(await this.thread(person, "reply"));
+      await this.memory.addMessage(person.id, "assistant", answer, false);
       void this.maybeExtract(person).catch((error: Error) => {
         console.warn(`[diza] memória não gravou: ${error.message}`);
       });
@@ -27,7 +27,7 @@ export class DizaCore {
 
   async initiate(person: Person): Promise<string | null> {
     try {
-      const { text } = await this.router.complete(this.thread(person, "initiative"));
+      const { text } = await this.router.complete(await this.thread(person, "initiative"));
       return text.trim() || null;
     } catch (error) {
       console.warn(`[diza] iniciativa não saiu: ${(error as Error).message}`);
@@ -35,16 +35,17 @@ export class DizaCore {
     }
   }
 
-  private thread(person: Person, kind: "reply" | "initiative"): ChatTurn[] {
-    const fresh = this.memory.findByPhone(person.phone) ?? person;
-    const memories = this.memory.memoriesOf(fresh.id);
-    const history = this.memory.recentMessages(fresh.id, this.config.historyLimit);
-    const otherPerson = this.memory.people().find((item) => item.id !== fresh.id) ?? null;
+  private async thread(person: Person, kind: "reply" | "initiative"): Promise<ChatTurn[]> {
+    const fresh = (await this.memory.findByPhone(person.phone)) ?? person;
+    const memories = await this.memory.memoriesOf(fresh.id);
+    const history = await this.memory.recentMessages(fresh.id, this.config.historyLimit);
+    const people = await this.memory.people();
+    const otherPerson = people.find((item) => item.id !== fresh.id) ?? null;
     const other = otherPerson
       ? {
           label: personLabel(otherPerson),
-          memories: this.memory.memoriesOf(otherPerson.id),
-          messages: this.memory.recentMessages(otherPerson.id, this.config.historyLimit),
+          memories: await this.memory.memoriesOf(otherPerson.id),
+          messages: await this.memory.recentMessages(otherPerson.id, this.config.historyLimit),
         }
       : null;
     const base = systemPrompt(fresh, memories, other);
@@ -57,8 +58,8 @@ export class DizaCore {
   }
 
   private async maybeExtract(person: Person): Promise<void> {
-    if (this.memory.userMessagesSinceExtract(person.id) < this.config.memoryEvery) return;
-    const recent = this.memory.recentMessages(person.id, 16);
+    if ((await this.memory.userMessagesSinceExtract(person.id)) < this.config.memoryEvery) return;
+    const recent = await this.memory.recentMessages(person.id, 16);
     const transcript = recent.map((item) => `${item.role}: ${item.content}`).join("\n");
     const { text } = await this.router.complete(
       [
@@ -77,8 +78,8 @@ export class DizaCore {
         .map((line) => line.replace(/^[-*\d.)\s]+/, "").trim())
         .filter((line) => line && line.toUpperCase() !== "NADA")
         .slice(0, 3);
-      for (const line of lines) this.memory.addMemory(person.id, line);
+      for (const line of lines) await this.memory.addMemory(person.id, line);
     }
-    this.memory.markExtracted(person.id);
+    await this.memory.markExtracted(person.id);
   }
 }

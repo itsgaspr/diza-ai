@@ -5,12 +5,12 @@ import {
   isJidGroup,
   isJidStatusBroadcast,
   makeWASocket as makeWASocketExport,
-  useMultiFileAuthState,
   type WAMessage,
   type WASocket,
 } from "@whiskeysockets/baileys";
 import pino from "pino";
 import qrcode from "qrcode-terminal";
+import type { SavedAuth } from "./auth-state.js";
 import type { AppConfig } from "./config.js";
 import type { DizaCore } from "./core.js";
 import type { Memory, Person } from "./memory.js";
@@ -42,19 +42,20 @@ export interface Gateway {
 
 export async function startGateway(options: {
   config: AppConfig;
+  auth: SavedAuth;
   memory: Memory;
   core: DizaCore;
   startedAt: number;
   lock: <T>(userId: number, fn: () => Promise<T>) => Promise<T>;
   onConnected: (gateway: Gateway) => void;
 }): Promise<Gateway> {
-  const auth = await useMultiFileAuthState("auth");
+  const auth = options.auth;
   let sock: WASocket | null = null;
   let connected = false;
   let announced = false;
   let generation = 0;
   const lidPhones = new Map<string, string>();
-  for (const known of options.memory.knownLids()) {
+  for (const known of await options.memory.knownLids()) {
     rememberLidPhone(lidPhones, known.lid, known.phone);
   }
   let lidLookup: Promise<void> = Promise.resolve();
@@ -64,7 +65,9 @@ export async function startGateway(options: {
   const storeLid = (lid: string | null | undefined, phone: string | null | undefined) => {
     if (!lid || !phone) return;
     rememberLidPhone(lidPhones, lid, phone);
-    options.memory.setLid(phone, lid);
+    void options.memory.setLid(phone, lid).catch((error: Error) => {
+      console.warn(`[diza] lid não gravou: ${error.message}`);
+    });
   };
 
   const absorbContact = (contact: { id?: string; lid?: string | null; jid?: string | null }) => {
@@ -84,7 +87,7 @@ export async function startGateway(options: {
         if (!phone || !lid) continue;
         storeLid(lid, phone);
         found += 1;
-        console.log(`[diza] ${digits(lid)}@lid é ${options.memory.findByPhone(phone)?.name ?? "lista"}`);
+        console.log(`[diza] ${digits(lid)}@lid é ${(await options.memory.findByPhone(phone))?.name ?? "lista"}`);
       }
       if (!found) console.warn("[diza] WhatsApp não devolveu o lid dos números da lista");
     } finally {
@@ -210,7 +213,7 @@ export async function startGateway(options: {
       console.warn(`[diza] não achei telefone para ${remoteJid}`);
       return;
     }
-    const person = options.memory.findByPhone(phone);
+    const person = await options.memory.findByPhone(phone);
     if (!person) {
       console.log(`[diza] número fora da lista: ${phone}`);
       return;
@@ -243,7 +246,7 @@ export async function startGateway(options: {
     bursts.delete(person.id);
     const text = burst.parts.join("\n").trim();
     if (!text) return;
-    options.memory.touchJid(person.id, burst.jid);
+    await options.memory.touchJid(person.id, burst.jid);
     await options.lock(person.id, async () => {
       try {
         await sock?.sendPresenceUpdate("composing", burst.jid);

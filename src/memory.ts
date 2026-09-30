@@ -1,8 +1,6 @@
-import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import type { AppConfig, PersonRole } from "./config.js";
 import { digits, phonesMatch } from "./phone.js";
+import type { Sql } from "./sql.js";
 
 export interface Person {
   id: number;
@@ -27,184 +25,150 @@ interface UserRow {
 }
 
 export class Memory {
-  private readonly db: DatabaseSync;
+  private constructor(private readonly db: Sql) {}
 
-  constructor(path: string, config: AppConfig) {
-    mkdirSync(dirname(path), { recursive: true });
-    this.db = new DatabaseSync(path);
-    this.db.exec("PRAGMA foreign_keys = ON");
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY,
-        phone TEXT NOT NULL UNIQUE,
-        role TEXT NOT NULL,
-        name TEXT NOT NULL,
-        last_jid TEXT,
-        lid TEXT,
-        last_extract_message_id INTEGER NOT NULL DEFAULT 0
-      );
-      CREATE TABLE IF NOT EXISTS messages (
-        id INTEGER PRIMARY KEY,
-        user_id INTEGER NOT NULL REFERENCES users(id),
-        role TEXT NOT NULL,
-        content TEXT NOT NULL,
-        initiative INTEGER NOT NULL DEFAULT 0,
-        created_at INTEGER NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS memories (
-        id INTEGER PRIMARY KEY,
-        user_id INTEGER NOT NULL REFERENCES users(id),
-        content TEXT NOT NULL,
-        created_at INTEGER NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS initiative_log (
-        id INTEGER PRIMARY KEY,
-        user_id INTEGER NOT NULL REFERENCES users(id),
-        outcome TEXT NOT NULL,
-        reason TEXT NOT NULL,
-        created_at INTEGER NOT NULL
-      );
-    `);
-    const columns = this.db.prepare("PRAGMA table_info(users)").all() as Array<{ name: string }>;
-    if (!columns.some((column) => column.name === "lid")) {
-      this.db.exec("ALTER TABLE users ADD COLUMN lid TEXT");
-    }
-    this.seed(digits(config.userPhone), "user", config.userName);
-    this.seed(digits(config.originalDizaPhone), "original_diza", "Diza");
+  static async open(db: Sql, config: AppConfig): Promise<Memory> {
+    const memory = new Memory(db);
+    await memory.seed(digits(config.userPhone), "user", config.userName);
+    await memory.seed(digits(config.originalDizaPhone), "original_diza", "Diza");
+    return memory;
   }
 
-  knownLids(): Array<{ phone: string; lid: string }> {
-    const rows = this.db
-      .prepare("SELECT phone, lid FROM users WHERE lid IS NOT NULL AND lid != ''")
-      .all() as Array<{ phone: string; lid: string }>;
+  async knownLids(): Promise<Array<{ phone: string; lid: string }>> {
+    const rows = await this.db.all<{ phone: string; lid: string }>(
+      "SELECT phone, lid FROM users WHERE lid IS NOT NULL AND lid != ''",
+    );
     return rows.map((row) => ({ phone: row.phone, lid: row.lid }));
   }
 
-  setLid(phone: string, lid: string): void {
-    const person = this.findByPhone(phone);
+  async setLid(phone: string, lid: string): Promise<void> {
+    const person = await this.findByPhone(phone);
     const user = digits(lid.split("@")[0]?.split(":")[0] ?? "");
     if (!person || !user) return;
-    this.db.prepare("UPDATE users SET lid = ? WHERE id = ?").run(`${user}@lid`, person.id);
+    await this.db.run("UPDATE users SET lid = $1 WHERE id = $2", [`${user}@lid`, person.id]);
   }
 
-  people(): Person[] {
-    const rows = this.db.prepare("SELECT id, phone, role, name, last_jid FROM users ORDER BY id").all() as unknown as UserRow[];
+  async people(): Promise<Person[]> {
+    const rows = await this.db.all<UserRow>("SELECT id, phone, role, name, last_jid FROM users ORDER BY id");
     return rows.map(toPerson);
   }
 
-  findByPhone(phone: string): Person | null {
-    return this.people().find((person) => phonesMatch(person.phone, phone)) ?? null;
+  async findByPhone(phone: string): Promise<Person | null> {
+    const people = await this.people();
+    return people.find((person) => phonesMatch(person.phone, phone)) ?? null;
   }
 
-  touchJid(userId: number, jid: string): void {
-    this.db.prepare("UPDATE users SET last_jid = ? WHERE id = ?").run(jid, userId);
+  async touchJid(userId: number, jid: string): Promise<void> {
+    await this.db.run("UPDATE users SET last_jid = $1 WHERE id = $2", [jid, userId]);
   }
 
-  addMessage(userId: number, role: "user" | "assistant", content: string, initiative: boolean): void {
-    this.db
-      .prepare(
-        "INSERT INTO messages (user_id, role, content, initiative, created_at) VALUES (?, ?, ?, ?, ?)",
-      )
-      .run(userId, role, content, initiative ? 1 : 0, Date.now());
+  async addMessage(userId: number, role: "user" | "assistant", content: string, initiative: boolean): Promise<void> {
+    await this.db.run(
+      "INSERT INTO messages (user_id, role, content, initiative, created_at) VALUES ($1, $2, $3, $4, $5)",
+      [userId, role, content, initiative ? 1 : 0, Date.now()],
+    );
   }
 
-  recentMessages(userId: number, limit: number): StoredMessage[] {
-    const rows = this.db
-      .prepare(
-        `SELECT role, content, initiative FROM messages
-         WHERE user_id = ? ORDER BY id DESC LIMIT ?`,
-      )
-      .all(userId, limit) as Array<{ role: "user" | "assistant"; content: string; initiative: number }>;
+  async recentMessages(userId: number, limit: number): Promise<StoredMessage[]> {
+    const rows = await this.db.all<{ role: "user" | "assistant"; content: string; initiative: number }>(
+      `SELECT role, content, initiative FROM messages
+       WHERE user_id = $1 ORDER BY id DESC LIMIT $2`,
+      [userId, limit],
+    );
     return rows.reverse().map((row) => ({
       role: row.role,
       content: row.content,
-      initiative: row.initiative === 1,
+      initiative: Number(row.initiative) === 1,
     }));
   }
 
-  memoriesOf(userId: number): string[] {
-    const rows = this.db
-      .prepare("SELECT content FROM memories WHERE user_id = ? ORDER BY id DESC LIMIT 20")
-      .all(userId) as Array<{ content: string }>;
+  async memoriesOf(userId: number): Promise<string[]> {
+    const rows = await this.db.all<{ content: string }>(
+      "SELECT content FROM memories WHERE user_id = $1 ORDER BY id DESC LIMIT 20",
+      [userId],
+    );
     return rows.reverse().map((row) => row.content);
   }
 
-  addMemory(userId: number, content: string): void {
-    this.db
-      .prepare("INSERT INTO memories (user_id, content, created_at) VALUES (?, ?, ?)")
-      .run(userId, content, Date.now());
+  async addMemory(userId: number, content: string): Promise<void> {
+    await this.db.run("INSERT INTO memories (user_id, content, created_at) VALUES ($1, $2, $3)", [
+      userId,
+      content,
+      Date.now(),
+    ]);
   }
 
-  userMessagesSinceExtract(userId: number): number {
-    const row = this.db
-      .prepare(
-        `SELECT COUNT(*) AS count FROM messages
-         WHERE user_id = ? AND role = 'user' AND id > (
-           SELECT last_extract_message_id FROM users WHERE id = ?
-         )`,
-      )
-      .get(userId, userId) as { count: number };
-    return row.count;
+  async userMessagesSinceExtract(userId: number): Promise<number> {
+    const row = await this.db.get<{ count: number }>(
+      `SELECT COUNT(*) AS count FROM messages
+       WHERE user_id = $1 AND role = 'user' AND id > (
+         SELECT last_extract_message_id FROM users WHERE id = $2
+       )`,
+      [userId, userId],
+    );
+    return Number(row?.count ?? 0);
   }
 
-  markExtracted(userId: number): void {
-    const row = this.db
-      .prepare("SELECT COALESCE(MAX(id), 0) AS id FROM messages WHERE user_id = ?")
-      .get(userId) as { id: number };
-    this.db.prepare("UPDATE users SET last_extract_message_id = ? WHERE id = ?").run(row.id, userId);
+  async markExtracted(userId: number): Promise<void> {
+    const row = await this.db.get<{ id: number }>(
+      "SELECT COALESCE(MAX(id), 0) AS id FROM messages WHERE user_id = $1",
+      [userId],
+    );
+    await this.db.run("UPDATE users SET last_extract_message_id = $1 WHERE id = $2", [Number(row?.id ?? 0), userId]);
   }
 
-  hasUserMessage(userId: number): boolean {
-    const row = this.db
-      .prepare("SELECT COUNT(*) AS count FROM messages WHERE user_id = ? AND role = 'user'")
-      .get(userId) as { count: number };
-    return row.count > 0;
+  async hasUserMessage(userId: number): Promise<boolean> {
+    const row = await this.db.get<{ count: number }>(
+      "SELECT COUNT(*) AS count FROM messages WHERE user_id = $1 AND role = 'user'",
+      [userId],
+    );
+    return Number(row?.count ?? 0) > 0;
   }
 
-  lastActivityAt(userId: number): number | null {
-    const row = this.db
-      .prepare("SELECT MAX(created_at) AS at FROM messages WHERE user_id = ?")
-      .get(userId) as { at: number | null };
-    return row.at;
+  async lastActivityAt(userId: number): Promise<number | null> {
+    const row = await this.db.get<{ at: number | null }>(
+      "SELECT MAX(created_at) AS at FROM messages WHERE user_id = $1",
+      [userId],
+    );
+    return row?.at == null ? null : Number(row.at);
   }
 
-  lastInitiativeAt(userId: number): number | null {
-    const row = this.db
-      .prepare(
-        "SELECT MAX(created_at) AS at FROM initiative_log WHERE user_id = ? AND outcome = 'sent'",
-      )
-      .get(userId) as { at: number | null };
-    return row.at;
+  async lastInitiativeAt(userId: number): Promise<number | null> {
+    const row = await this.db.get<{ at: number | null }>(
+      "SELECT MAX(created_at) AS at FROM initiative_log WHERE user_id = $1 AND outcome = 'sent'",
+      [userId],
+    );
+    return row?.at == null ? null : Number(row.at);
   }
 
-  initiativeCountSince(userId: number, since: number): number {
-    const row = this.db
-      .prepare(
-        `SELECT COUNT(*) AS count FROM initiative_log
-         WHERE user_id = ? AND outcome = 'sent' AND created_at >= ?`,
-      )
-      .get(userId, since) as { count: number };
-    return row.count;
+  async initiativeCountSince(userId: number, since: number): Promise<number> {
+    const row = await this.db.get<{ count: number }>(
+      `SELECT COUNT(*) AS count FROM initiative_log
+       WHERE user_id = $1 AND outcome = 'sent' AND created_at >= $2`,
+      [userId, since],
+    );
+    return Number(row?.count ?? 0);
   }
 
-  logInitiative(userId: number, outcome: "sent" | "quiet", reason: string): void {
-    this.db
-      .prepare(
-        "INSERT INTO initiative_log (user_id, outcome, reason, created_at) VALUES (?, ?, ?, ?)",
-      )
-      .run(userId, outcome, reason, Date.now());
+  async logInitiative(userId: number, outcome: "sent" | "quiet", reason: string): Promise<void> {
+    await this.db.run(
+      "INSERT INTO initiative_log (user_id, outcome, reason, created_at) VALUES ($1, $2, $3, $4)",
+      [userId, outcome, reason, Date.now()],
+    );
   }
 
-  private seed(phone: string, role: PersonRole, name: string): void {
-    this.db
-      .prepare("INSERT INTO users (phone, role, name) VALUES (?, ?, ?) ON CONFLICT(phone) DO UPDATE SET name = excluded.name")
-      .run(phone, role, name);
+  private async seed(phone: string, role: PersonRole, name: string): Promise<void> {
+    await this.db.run(
+      `INSERT INTO users (phone, role, name) VALUES ($1, $2, $3)
+       ON CONFLICT(phone) DO UPDATE SET name = excluded.name`,
+      [phone, role, name],
+    );
   }
 }
 
 function toPerson(row: UserRow): Person {
   return {
-    id: row.id,
+    id: Number(row.id),
     phone: row.phone,
     role: row.role,
     name: row.name,

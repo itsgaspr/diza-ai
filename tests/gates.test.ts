@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { storagePaths } from "../src/config.js";
 import { initiativeBlockReason } from "../src/initiative.js";
 import { phoneForLid, phoneFromUserJid, phonesMatch, rememberLidPhone } from "../src/phone.js";
 import { hourInZone, isQuietHour, startOfLocalDay } from "../src/time.js";
@@ -17,6 +18,12 @@ const base = {
   lastInitiativeAt: null as number | null,
   initiativeToday: 0,
 };
+
+test("sem DATA_DIR a sessão fica em auth e a memória em data", () => {
+  assert.deepEqual(storagePaths(undefined), { authDir: "auth", dbPath: "data/diza.db" });
+  assert.equal(storagePaths("/var/data").authDir, "/var/data/auth");
+  assert.equal(storagePaths("/var/data").dbPath, "/var/data/diza.db");
+});
 
 test("números batem com ou sem o código do país", () => {
   assert.equal(phonesMatch("+55 11 98888-7777", "5511988887777"), true);

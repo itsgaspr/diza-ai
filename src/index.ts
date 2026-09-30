@@ -1,4 +1,6 @@
-import { loadConfig } from "./config.js";
+import { useMultiFileAuthState } from "@whiskeysockets/baileys";
+import { useDbAuthState, type SavedAuth } from "./auth-state.js";
+import { loadConfig, storagePaths } from "./config.js";
 import { DizaCore } from "./core.js";
 import { startGateway } from "./gateway.js";
 import { startInitiative } from "./initiative.js";
@@ -6,6 +8,7 @@ import { Memory } from "./memory.js";
 import { buildSlots } from "./models.js";
 import { startPing } from "./ping.js";
 import { ModelRouter } from "./router.js";
+import { openPostgres, openSqlite } from "./sql.js";
 
 const locks = new Map<number, Promise<unknown>>();
 
@@ -25,7 +28,21 @@ function lock<T>(userId: number, fn: () => Promise<T>): Promise<T> {
 async function main(): Promise<void> {
   const startedAt = Date.now();
   const config = loadConfig();
-  const memory = new Memory("data/diza.db", config);
+  const paths = storagePaths(config.dataDir);
+  let memory: Memory;
+  let auth: SavedAuth;
+  if (config.databaseUrl) {
+    const sql = await openPostgres(config.databaseUrl);
+    memory = await Memory.open(sql, config);
+    auth = await useDbAuthState(sql);
+    console.log("[diza] sessão e memória no Neon");
+  } else if (process.env.RENDER) {
+    throw new Error("Falta DATABASE_URL. Copia a connection string do Neon para o Render.");
+  } else {
+    memory = await Memory.open(openSqlite(paths.dbPath), config);
+    auth = await useMultiFileAuthState(paths.authDir);
+    console.log(`[diza] sessão em ${paths.authDir}, memória em ${paths.dbPath}`);
+  }
   const router = new ModelRouter(buildSlots(config), config.llmTimeoutMs);
   const core = new DizaCore(memory, router, config);
 
@@ -33,6 +50,7 @@ async function main(): Promise<void> {
 
   await startGateway({
     config,
+    auth,
     memory,
     core,
     startedAt,

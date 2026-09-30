@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import "dotenv/config";
 
 export type PersonRole = "user" | "original_diza";
@@ -22,6 +23,13 @@ export interface AppConfig {
   maxInitiativePerDay: number;
   llmTimeoutMs: number;
   pingPort: number;
+  dataDir?: string;
+  databaseUrl?: string;
+}
+
+export function storagePaths(dataDir: string | undefined): { authDir: string; dbPath: string } {
+  if (!dataDir) return { authDir: "auth", dbPath: join("data", "diza.db") };
+  return { authDir: join(dataDir, "auth"), dbPath: join(dataDir, "diza.db") };
 }
 
 function optional(name: string): string | undefined {
@@ -80,5 +88,7 @@ export function loadConfig(): AppConfig {
     maxInitiativePerDay: intEnv("MAX_INITIATIVE_PER_DAY", 2),
     llmTimeoutMs: intEnv("LLM_TIMEOUT_MS", 45_000),
     pingPort: intEnv("PORT", intEnv("PING_PORT", 3080)),
+    dataDir: optional("DATA_DIR"),
+    databaseUrl: optional("DATABASE_URL"),
   };
 }

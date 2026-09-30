@@ -16,8 +16,12 @@ No primeiro arranque o terminal mostra um QR. Escaneia com o WhatsApp **da Diza*
 
 Ela ignora mensagem antiga, grupo e qualquer número que não seja o seu ou o da Diza original. A primeira mensagem de cada conversa tem que partir da pessoa. Depois disso ela pode escrever primeiro, sem precisar de um motivo.
 
-`auth/` guarda a sessão. `data/diza.db` guarda conversas e memórias. Os dois ficam fora do git.
+Sem `DATABASE_URL`, `auth/` guarda a sessão e `data/diza.db` guarda conversas e memórias. Os dois ficam fora do git. Se o WhatsApp deslogar, apaga a pasta `auth/` e pareia de novo.
 
-Se o WhatsApp deslogar, apaga a pasta `auth/` e pareia de novo.
+## Render
+
+O disco do serviço é apagado em cada deploy. No Neon, cria uma base só da Diza e põe a connection string em `DATABASE_URL`. O login e a memória ficam nessa base. O primeiro arranque pede o QR. Os deploys seguintes entram já ligados.
+
+Não corras o mesmo `DATABASE_URL` no computador e no Render ao mesmo tempo: os dois disputam a sessão do WhatsApp.
 
 Para ver se o processo está no ar: `curl http://127.0.0.1:3080/ping`. A porta muda com `PING_PORT`. A resposta diz há quanto tempo a Diza está ativa.
